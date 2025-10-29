@@ -3,18 +3,18 @@ from sklearn.model_selection import train_test_split
 import os
 
 # Create data folder if it doesn't exist
-os.makedirs('data', exist_ok=True)
+os.makedirs('..\\data', exist_ok=True)
 
 # Define file paths
-train_path = os.path.join('data', 'training_data.csv')
-test_path = os.path.join('data', 'test_data.csv')
+train_path = os.path.join('..\\data', 'training_data.csv')
+test_path = os.path.join('..\\data', 'test_data.csv')
 
 # Check if split files already exist
 if os.path.exists(train_path) and os.path.exists(test_path):
     print("Split files already exist. Skipping split operation.")
 else:
     # Read the dataset
-    df = pd.read_csv('data/Bank_Transaction_Fraud_Detection.csv')
+    df = pd.read_csv('../data/Bank_Transaction_Fraud_Detection.csv')
     
     # Perform 80-20 train-test split with stratification on target column
     train_df, test_df = train_test_split(
