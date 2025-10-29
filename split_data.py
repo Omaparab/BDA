@@ -14,7 +14,7 @@ if os.path.exists(train_path) and os.path.exists(test_path):
     print("Split files already exist. Skipping split operation.")
 else:
     # Read the dataset
-    df = pd.read_csv('bank_transaction_fraud_detection.csv')
+    df = pd.read_csv('data/Bank_Transaction_Fraud_Detection.csv')
     
     # Perform 80-20 train-test split with stratification on target column
     train_df, test_df = train_test_split(
