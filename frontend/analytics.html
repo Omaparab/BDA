@@ -64,7 +64,7 @@
 
         <header>
             <h1>📊 Advanced Analytics Dashboard</h1>
-            <p style="color: #718096; margin-top: 8px;">Stream Mining & Graph Analysis for Fraud Detection</p>
+            <p style="color: #718096; margin-top: 8px;">Analysis for Fraud Detection</p>
         </header>
 
         <div id="main-loading" class="loading">Loading analytics data...</div>
@@ -138,16 +138,7 @@
                 </div>
             </div>
 
-            <!-- Girvan-Newman Community Detection -->
-            <div class="card">
-                <h2>🕸️ Girvan-Newman Community Detection</h2>
-                <div class="info-box">
-                    <p><strong>Purpose:</strong> Identify organized fraud networks and money laundering rings</p>
-                    <p><strong>Method:</strong> Graph-based community detection using edge betweenness</p>
-                    <p><strong>Application:</strong> Uncovers coordinated fraud that isolated transaction analysis misses</p>
-                </div>
-                <div id="girvan-content" class="algorithm-result"></div>
-            </div>
+            
 
             <!-- Feature Importance -->
             <div class="card">
@@ -235,48 +226,7 @@
                     `;
                 }
 
-                // Girvan-Newman Results
-                if (data.girvan_newman && !data.girvan_newman.error) {
-                    const gn = data.girvan_newman;
-                    let gnHTML = `
-                        <div class="stat-row">
-                            <span class="stat-label">Communities Detected</span>
-                            <span class="stat-value">${gn.communities_found}</span>
-                        </div>
-                        <p style="color: #718096; margin: 12px 0; font-size: 14px;">${gn.description}</p>
-                    `;
-                    
-                    if (gn.community_analysis && gn.community_analysis.length > 0) {
-                        gnHTML += '<div style="margin-top: 16px;">';
-                        gn.community_analysis.forEach(community => {
-                            gnHTML += `
-                                <div class="community-card risk-${community.risk_level.toLowerCase()}">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                        <h3 style="margin: 0;">Community ${community.community_id}</h3>
-                                        <span class="badge badge-${community.risk_level.toLowerCase()}">${community.risk_level} Risk</span>
-                                    </div>
-                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 14px;">
-                                        <div>
-                                            <div style="color: #718096;">Size</div>
-                                            <div style="font-weight: 600;">${community.size} nodes</div>
-                                        </div>
-                                        <div>
-                                            <div style="color: #718096;">Fraud Cases</div>
-                                            <div style="font-weight: 600; color: #e53e3e;">${community.fraud_count}</div>
-                                        </div>
-                                        <div>
-                                            <div style="color: #718096;">Fraud Rate</div>
-                                            <div style="font-weight: 600;">${community.fraud_rate}%</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        gnHTML += '</div>';
-                    }
-                    
-                    document.getElementById('girvan-content').innerHTML = gnHTML;
-                }
+                
 
                 // Feature Importance Chart
                 if (data.feature_importance) {

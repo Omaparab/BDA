@@ -7,10 +7,11 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #2d3748; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         header { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; }
         h1 { font-size: 28px; font-weight: 600; }
         h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+        h3 { font-size: 16px; font-weight: 600; margin: 24px 0 16px 0; color: #4299e1; border-bottom: 2px solid #4299e1; padding-bottom: 8px; }
         .card { background: white; padding: 32px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         nav { background: white; padding: 16px 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }
         nav .logo { font-size: 20px; font-weight: 600; color: #2d3748; }
@@ -18,35 +19,37 @@
         nav a { color: #4a5568; text-decoration: none; font-weight: 500; transition: color 0.2s; }
         nav a:hover { color: #4299e1; }
         nav a.active { color: #4299e1; font-weight: 600; }
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #4a5568; font-size: 14px; }
-        .form-group input, .form-group select { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; }
-        .form-group input:required:invalid { border-color: #fc8181; }
+        .form-group label .required { color: #e53e3e; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; font-family: inherit; }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: #4299e1; }
         .btn { padding: 14px 28px; background: #4299e1; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-size: 16px; width: 100%; }
         .btn:hover { background: #3182ce; }
         .btn:disabled { background: #cbd5e0; cursor: not-allowed; }
-        .btn-secondary { background: #718096; margin-left: 12px; }
+        .btn-secondary { background: #718096; }
         .btn-secondary:hover { background: #4a5568; }
         .alert { padding: 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500; display: none; }
         .alert-success { background: #c6f6d5; color: #22543d; border-left: 4px solid #48bb78; }
         .alert-error { background: #fed7d7; color: #742a2a; border-left: 4px solid #e53e3e; }
         .info-box { background: #ebf8ff; border-left: 4px solid #4299e1; padding: 16px; border-radius: 4px; margin-bottom: 24px; }
         .info-box p { color: #2c5282; margin: 4px 0; line-height: 1.5; }
-        .button-group { display: flex; gap: 12px; margin-top: 24px; }
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 32px; }
         .prediction-box { margin-top: 24px; padding: 20px; border-radius: 8px; font-weight: 600; text-align: center; display: none; }
         .prediction-fraud { background: #fed7d7; color: #742a2a; border: 2px solid #e53e3e; }
         .prediction-legit { background: #c6f6d5; color: #22543d; border: 2px solid #48bb78; }
         .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #4299e1; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .help-text { font-size: 12px; color: #718096; margin-top: 4px; }
+        .section { margin-bottom: 32px; }
     </style>
 </head>
 <body>
     <div class="container">
         <nav>
-            <div class="logo">🔐 SafePay</div>
+            <div class="logo">🔒 SafePay</div>
             <div class="nav-links">
                 <a href="/">Dashboard</a>
                 <a href="/analytics">Analytics</a>
@@ -56,13 +59,13 @@
 
         <header>
             <h1>➕ Add New Transaction</h1>
-            <p style="color: #718096; margin-top: 8px;">Submit transaction data for fraud detection analysis</p>
+            <p style="color: #718096; margin-top: 8px;">Submit transaction data - fraud status will be automatically predicted by our ML model</p>
         </header>
 
         <div class="card">
             <div class="info-box">
-                <p><strong>📝 Instructions:</strong> Fill in all transaction details below. The system will:</p>
-                <p>• Predict if the transaction is fraudulent using our ML model</p>
+                <p><strong>📋 Instructions:</strong> Fill in all transaction details below. The system will:</p>
+                <p>• Automatically predict fraud status using our Random Forest ML model</p>
                 <p>• Save the transaction to MongoDB database (Collection: bda, Database: transactions)</p>
                 <p>• Append the data to CSV file for backup and analysis</p>
                 <p>• Automatically retrain the model with the new data</p>
@@ -71,13 +74,192 @@
             <div id="alert-box" class="alert"></div>
 
             <form id="transaction-form">
-                <div id="form-fields-container"></div>
+                <!-- Customer Information Section -->
+                <div class="section">
+                    <h3>👤 Customer Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="Customer_Name">Customer Name <span class="required">*</span></label>
+                            <input type="text" id="Customer_Name" name="Customer_Name" required placeholder="e.g., John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label for="Gender">Gender <span class="required">*</span></label>
+                            <select id="Gender" name="Gender" required>
+                                <option value="">Select Gender</option>
+                                <option value="Male">Male</option>
+                                <option value="Female">Female</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="Age">Age <span class="required">*</span></label>
+                            <input type="number" id="Age" name="Age" required min="18" max="120" placeholder="e.g., 35">
+                        </div>
+                        <div class="form-group">
+                            <label for="Customer_Contact">Customer Contact <span class="required">*</span></label>
+                            <input type="text" id="Customer_Contact" name="Customer_Contact" required placeholder="e.g., +919857912345">
+                            <div class="help-text">Format: +91XXXXXXXXXX</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Location Information Section -->
+                <div class="section">
+                    <h3>📍 Location Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="State">State <span class="required">*</span></label>
+                            <select id="State" name="State" required>
+                                <option value="">Select State</option>
+                                <option value="Kerala">Kerala</option>
+                                <option value="Maharashtra">Maharashtra</option>
+                                <option value="Karnataka">Karnataka</option>
+                                <option value="Tamil Nadu">Tamil Nadu</option>
+                                <option value="Delhi">Delhi</option>
+                                <option value="Gujarat">Gujarat</option>
+                                <option value="Rajasthan">Rajasthan</option>
+                                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                                <option value="West Bengal">West Bengal</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="City">City <span class="required">*</span></label>
+                            <input type="text" id="City" name="City" required placeholder="e.g., Mumbai">
+                        </div>
+                        <div class="form-group">
+                            <label for="Transaction_Location">Transaction Location <span class="required">*</span></label>
+                            <input type="text" id="Transaction_Location" name="Transaction_Location" required placeholder="e.g., Mumbai, Maharashtra">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bank Account Information Section -->
+                <div class="section">
+                    <h3>🏦 Bank Account Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="Bank_Branch">Bank Branch <span class="required">*</span></label>
+                            <input type="text" id="Bank_Branch" name="Bank_Branch" required placeholder="e.g., Andheri Branch">
+                        </div>
+                        <div class="form-group">
+                            <label for="Account_Type">Account Type <span class="required">*</span></label>
+                            <select id="Account_Type" name="Account_Type" required>
+                                <option value="">Select Account Type</option>
+                                <option value="Savings">Savings</option>
+                                <option value="Current">Current</option>
+                                <option value="Salary">Salary</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="Account_Balance">Account Balance <span class="required">*</span></label>
+                            <input type="number" id="Account_Balance" name="Account_Balance" required step="0.01" placeholder="e.g., 50000.00">
+                            <div class="help-text">Current account balance in INR</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transaction Details Section -->
+                <div class="section">
+                    <h3>💳 Transaction Details</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="Transaction_Date">Transaction Date <span class="required">*</span></label>
+                            <input type="date" id="Transaction_Date" name="Transaction_Date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="Transaction_Time">Transaction Time <span class="required">*</span></label>
+                            <input type="time" id="Transaction_Time" name="Transaction_Time" required step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="Transaction_Amount">Transaction Amount <span class="required">*</span></label>
+                            <input type="number" id="Transaction_Amount" name="Transaction_Amount" required step="0.01" min="0" placeholder="e.g., 5000.00">
+                            <div class="help-text">Amount in INR</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="Transaction_Currency">Transaction Currency <span class="required">*</span></label>
+                            <select id="Transaction_Currency" name="Transaction_Currency" required>
+                                <option value="INR">INR</option>
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="GBP">GBP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="Transaction_Type">Transaction Type <span class="required">*</span></label>
+                            <select id="Transaction_Type" name="Transaction_Type" required>
+                                <option value="">Select Transaction Type</option>
+                                <option value="Transfer">Transfer</option>
+                                <option value="Withdrawal">Withdrawal</option>
+                                <option value="Deposit">Deposit</option>
+                                <option value="Payment">Payment</option>
+                                <option value="Purchase">Purchase</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="Merchant_Category">Merchant Category <span class="required">*</span></label>
+                            <select id="Merchant_Category" name="Merchant_Category" required>
+                                <option value="">Select Category</option>
+                                <option value="Restaurant">Restaurant</option>
+                                <option value="Retail">Retail</option>
+                                <option value="Online Shopping">Online Shopping</option>
+                                <option value="Grocery">Grocery</option>
+                                <option value="Entertainment">Entertainment</option>
+                                <option value="Travel">Travel</option>
+                                <option value="Healthcare">Healthcare</option>
+                                <option value="Utilities">Utilities</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Device & Technical Information Section -->
+                <div class="section">
+                    <h3>📱 Device & Technical Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="Transaction_Device">Transaction Device <span class="required">*</span></label>
+                            <select id="Transaction_Device" name="Transaction_Device" required>
+                                <option value="">Select Device</option>
+                                <option value="Mobile App">Mobile App</option>
+                                <option value="Web Browser">Web Browser</option>
+                                <option value="ATM">ATM</option>
+                                <option value="POS">POS</option>
+                                <option value="Voice Assistant">Voice Assistant</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="Device_Type">Device Type <span class="required">*</span></label>
+                            <select id="Device_Type" name="Device_Type" required>
+                                <option value="">Select Device Type</option>
+                                <option value="Mobile">Mobile</option>
+                                <option value="Desktop">Desktop</option>
+                                <option value="Tablet">Tablet</option>
+                                <option value="POS">POS</option>
+                                <option value="ATM">ATM</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional Information Section -->
+                <div class="section">
+                    <h3>📝 Additional Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="Transaction_Description">Transaction Description</label>
+                            <textarea id="Transaction_Description" name="Transaction_Description" placeholder="e.g., Payment for restaurant bill"></textarea>
+                            <div class="help-text">Optional: Provide additional details about the transaction</div>
+                        </div>
+                    </div>
+                </div>
 
                 <div id="prediction-result" class="prediction-box"></div>
 
                 <div class="button-group">
                     <button type="button" class="btn" id="predict-btn" onclick="predictTransaction()">
-                        🔍 Predict Fraud Risk
+                        🔍 Preview Fraud Risk
                     </button>
                     <button type="submit" class="btn btn-secondary" id="submit-btn">
                         💾 Save Transaction
@@ -85,88 +267,55 @@
                 </div>
 
                 <div class="help-text" style="text-align: center; margin-top: 16px;">
-                    💡 Tip: Predict first to see fraud risk before saving
+                    💡 Tip: Preview fraud risk before saving, or save directly to auto-predict
                 </div>
             </form>
         </div>
     </div>
 
     <script>
-        let modelFeatures = [];
         let currentPrediction = null;
 
-        // Load model features and create form
-        fetch('/api/model-features')
-            .then(r => r.json())
-            .then(data => {
-                modelFeatures = data.features;
-                createFormFields();
-            })
-            .catch(e => {
-                showAlert('Error loading form fields. Please refresh the page.', 'error');
-            });
-
-        function createFormFields() {
-            const container = document.getElementById('form-fields-container');
+        // Set default date and time to today
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date();
+            const dateString = today.toISOString().split('T')[0];
+            const timeString = today.toTimeString().split(' ')[0];
             
-            // Common transaction fields with better UX
-            const fieldConfigs = {
-                'Amount': { type: 'number', step: '0.01', help: 'Transaction amount in rupees', required: true },
-                'Is_Fraud': { type: 'select', options: [
-                    { value: '0', label: 'Legitimate Transaction' },
-                    { value: '1', label: 'Fraudulent Transaction' }
-                ], help: 'Mark as fraud if confirmed fraudulent', required: true }
-            };
-
-            let html = '<div class="form-grid">';
-
-            modelFeatures.forEach(feature => {
-                const config = fieldConfigs[feature] || { type: 'number', step: 'any', required: true };
-                
-                html += `<div class="form-group">`;
-                html += `<label for="${feature}">${feature.replace(/_/g, ' ')}</label>`;
-                
-                if (config.type === 'select') {
-                    html += `<select id="${feature}" name="${feature}" ${config.required ? 'required' : ''}>`;
-                    config.options.forEach(opt => {
-                        html += `<option value="${opt.value}">${opt.label}</option>`;
-                    });
-                    html += `</select>`;
-                } else {
-                    html += `<input type="${config.type}" id="${feature}" name="${feature}" 
-                            step="${config.step}" ${config.required ? 'required' : ''} 
-                            placeholder="Enter ${feature.toLowerCase().replace(/_/g, ' ')}">`;
-                }
-                
-                if (config.help) {
-                    html += `<div class="help-text">${config.help}</div>`;
-                }
-                
-                html += `</div>`;
-            });
-
-            html += '</div>';
-            container.innerHTML = html;
-        }
+            document.getElementById('Transaction_Date').value = dateString;
+            document.getElementById('Transaction_Time').value = timeString;
+        });
 
         function getFormData() {
+            const form = document.getElementById('transaction-form');
+            const formData = new FormData(form);
             const data = {};
-            modelFeatures.forEach(feature => {
-                const element = document.getElementById(feature);
-                if (element) {
-                    const value = element.value;
-                    // Convert to appropriate type
-                    if (element.type === 'number' || element.tagName === 'SELECT') {
-                        data[feature] = parseFloat(value) || 0;
-                    } else {
-                        data[feature] = value;
-                    }
+            
+            for (let [key, value] of formData.entries()) {
+                // Convert numeric fields
+                if (['Age', 'Transaction_Amount', 'Account_Balance'].includes(key)) {
+                    data[key] = parseFloat(value) || 0;
+                } else {
+                    data[key] = value;
                 }
-            });
+            }
+            
+            // Format date and time for storage
+            if (data.Transaction_Date && data.Transaction_Time) {
+                const date = data.Transaction_Date.split('-').reverse().join('-');
+                data.Transaction_Date = date;
+            }
+            
             return data;
         }
 
         async function predictTransaction() {
+            const form = document.getElementById('transaction-form');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
             const btn = document.getElementById('predict-btn');
             const originalText = btn.innerHTML;
             btn.disabled = true;
@@ -229,11 +378,26 @@
             const submitBtn = document.getElementById('submit-btn');
             const originalText = submitBtn.innerHTML;
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="loading-spinner"></span> Saving...';
+            submitBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
 
             try {
                 const data = getFormData();
 
+                // First, predict the fraud status
+                const predictResponse = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (!predictResponse.ok) throw new Error('Prediction failed');
+
+                const predictionResult = await predictResponse.json();
+                
+                // Add predicted fraud status to the data
+                data.Is_Fraud = predictionResult.prediction;
+
+                // Now save the transaction with predicted fraud status
                 const response = await fetch('/api/add-transaction', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -245,14 +409,25 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    showAlert(`✅ Transaction saved successfully! (ID: ${result.id})<br>
+                    const fraudStatus = predictionResult.prediction === 1 ? 'FRAUDULENT' : 'LEGITIMATE';
+                    const fraudEmoji = predictionResult.prediction === 1 ? '⚠️' : '✅';
+                    
+                    showAlert(`${fraudEmoji} Transaction saved successfully! (ID: ${result.id})<br>
+                              🤖 Predicted Status: <strong>${fraudStatus}</strong> (${predictionResult.probability}% confidence)<br>
                               📊 Data added to MongoDB and CSV file<br>
-                              🤖 Model retrained with new data`, 'success');
+                              🔄 Model retrained with new data`, 'success');
                     
                     // Reset form
                     document.getElementById('transaction-form').reset();
                     document.getElementById('prediction-result').style.display = 'none';
                     currentPrediction = null;
+
+                    // Reset date and time to current
+                    const today = new Date();
+                    const dateString = today.toISOString().split('T')[0];
+                    const timeString = today.toTimeString().split(' ')[0];
+                    document.getElementById('Transaction_Date').value = dateString;
+                    document.getElementById('Transaction_Time').value = timeString;
 
                     // Scroll to top
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -274,11 +449,11 @@
             alertBox.innerHTML = message;
             alertBox.style.display = 'block';
             
-            // Auto-hide success messages after 5 seconds
+            // Auto-hide success messages after 8 seconds
             if (type === 'success') {
                 setTimeout(() => {
                     alertBox.style.display = 'none';
-                }, 5000);
+                }, 8000);
             }
 
             alertBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

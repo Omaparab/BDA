@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 from collections import defaultdict, deque
 import os
@@ -33,6 +33,16 @@ trained_model = None
 scaler = None
 feature_columns = None
 feature_importance_dict = None
+label_encoders = {}  # Store label encoders for categorical variables
+
+# Define all expected fields for the transaction form
+TRANSACTION_FIELDS = [
+    'Customer_Name', 'Gender', 'Age', 'State', 'City', 'Bank_Branch',
+    'Account_Type', 'Transaction_Date', 'Transaction_Time', 'Transaction_Amount',
+    'Transaction_Type', 'Merchant_Category', 'Account_Balance', 'Transaction_Device',
+    'Transaction_Location', 'Device_Type', 'Transaction_Currency', 'Customer_Contact',
+    'Transaction_Description', 'Is_Fraud'
+]
 
 # DGIM Algorithm Implementation
 class DGIMBucket:
@@ -127,12 +137,81 @@ def serialize_doc(doc):
             serialized[key] = value
     return serialized
 
+def engineer_features(df):
+    """Convert raw transaction data into features suitable for ML model"""
+    global label_encoders
+    
+    # Create a copy to avoid modifying original
+    df_features = df.copy()
+    
+    # Numeric features that can be used directly
+    numeric_features = ['Age', 'Transaction_Amount', 'Account_Balance']
+    
+    # Categorical features that need encoding
+    categorical_features = ['Gender', 'State', 'Account_Type', 'Transaction_Type', 
+                           'Merchant_Category', 'Transaction_Device', 'Device_Type', 
+                           'Transaction_Currency']
+    
+    # Encode categorical variables
+    for col in categorical_features:
+        if col in df_features.columns:
+            if col not in label_encoders:
+                label_encoders[col] = LabelEncoder()
+                # Fit on all possible values
+                df_features[col] = df_features[col].fillna('Unknown')
+                label_encoders[col].fit(df_features[col])
+            else:
+                df_features[col] = df_features[col].fillna('Unknown')
+            
+            # Transform
+            try:
+                df_features[col + '_Encoded'] = label_encoders[col].transform(df_features[col])
+            except ValueError:
+                # Handle unseen categories
+                df_features[col + '_Encoded'] = 0
+            
+            # Drop original categorical column
+            df_features = df_features.drop(columns=[col])
+    
+    # Parse Transaction_Date and Transaction_Time to extract features
+    if 'Transaction_Date' in df_features.columns:
+        try:
+            # Handle different date formats
+            df_features['Transaction_Date'] = pd.to_datetime(df_features['Transaction_Date'], 
+                                                             format='%d-%m-%Y', errors='coerce')
+            df_features['Day_of_Week'] = df_features['Transaction_Date'].dt.dayofweek
+            df_features['Day_of_Month'] = df_features['Transaction_Date'].dt.day
+            df_features['Month'] = df_features['Transaction_Date'].dt.month
+            df_features = df_features.drop(columns=['Transaction_Date'])
+        except:
+            df_features = df_features.drop(columns=['Transaction_Date'], errors='ignore')
+    
+    if 'Transaction_Time' in df_features.columns:
+        try:
+            # Extract hour from time
+            df_features['Transaction_Time'] = pd.to_datetime(df_features['Transaction_Time'], 
+                                                             format='%H:%M:%S', errors='coerce')
+            df_features['Hour'] = df_features['Transaction_Time'].dt.hour
+            df_features = df_features.drop(columns=['Transaction_Time'])
+        except:
+            df_features = df_features.drop(columns=['Transaction_Time'], errors='ignore')
+    
+    # Drop text fields that can't be easily encoded
+    text_fields = ['Customer_Name', 'City', 'Bank_Branch', 'Transaction_Location', 
+                   'Customer_Contact', 'Transaction_Description', 'timestamp']
+    df_features = df_features.drop(columns=text_fields, errors='ignore')
+    
+    # Keep only numeric columns
+    df_features = df_features.select_dtypes(include=[np.number])
+    
+    return df_features
+
 def train_model():
-    """Train Random Forest model with improved parameters for imbalanced data"""
+    """Train Random Forest model with feature engineering"""
     global trained_model, scaler, feature_columns, feature_importance_dict
     
     try:
-        print("Training Random Forest model with balanced settings...")
+        print("Training Random Forest model with feature engineering...")
         
         # Fetch all data from MongoDB
         cursor = collection.find({})
@@ -143,7 +222,7 @@ def train_model():
             print("Error: No data found in MongoDB")
             return False
         
-        # Remove non-numeric columns and _id
+        # Remove _id
         df = df.drop(columns=['_id'], errors='ignore')
         
         # Identify target column
@@ -151,13 +230,18 @@ def train_model():
             print("Error: 'Is_Fraud' column not found")
             return False
         
-        # Separate features and target
-        X = df.drop(columns=['Is_Fraud'])
+        # Separate target
         y = df['Is_Fraud']
         
-        # Keep only numeric columns
-        X = X.select_dtypes(include=[np.number])
+        # Engineer features
+        X = engineer_features(df.drop(columns=['Is_Fraud']))
+        
+        if X.empty or len(X.columns) == 0:
+            print("Error: No features available after engineering")
+            return False
+        
         feature_columns = X.columns.tolist()
+        print(f"Features used for training: {feature_columns}")
         
         # Handle missing values
         X = X.fillna(X.mean())
@@ -166,6 +250,10 @@ def train_model():
         fraud_count = y.sum()
         legit_count = len(y) - fraud_count
         print(f"Dataset: {legit_count} legitimate, {fraud_count} fraud transactions")
+        
+        if fraud_count == 0 or legit_count == 0:
+            print("Warning: Imbalanced dataset with only one class")
+            return False
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -177,14 +265,14 @@ def train_model():
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # Train Random Forest with optimized parameters for fraud detection
+        # Train Random Forest
         trained_model = RandomForestClassifier(
             n_estimators=200,
             max_depth=20,
             min_samples_split=10,
             min_samples_leaf=4,
             max_features='sqrt',
-            class_weight='balanced_subsample',  # Better for highly imbalanced data
+            class_weight='balanced_subsample',
             random_state=42,
             n_jobs=-1,
             bootstrap=True
@@ -211,6 +299,8 @@ def train_model():
         
     except Exception as e:
         print(f"Error training model: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # Routes
@@ -266,7 +356,7 @@ def get_data():
 
 @app.route('/api/stats')
 def get_stats():
-    """Get dataset statistics - cached in memory"""
+    """Get dataset statistics"""
     try:
         cursor = collection.find({}, {'Is_Fraud': 1})
         data = list(cursor)
@@ -297,7 +387,7 @@ def get_stats():
 
 @app.route('/api/analytics-data')
 def get_analytics_data():
-    """Get all analytics data in one call - confusion matrix, DGIM, Bloom Filter, Girvan-Newman"""
+    """Get all analytics data in one call"""
     try:
         if trained_model is None or scaler is None:
             return jsonify({'error': 'Model not trained'}), 500
@@ -309,9 +399,15 @@ def get_analytics_data():
         
         # Prepare data
         df = df.drop(columns=['_id'], errors='ignore')
-        X = df[feature_columns]
         y = df['Is_Fraud']
+        X = engineer_features(df.drop(columns=['Is_Fraud']))
         
+        # Ensure all required features are present
+        for col in feature_columns:
+            if col not in X.columns:
+                X[col] = 0
+        
+        X = X[feature_columns]  # Reorder columns
         X = X.fillna(X.mean())
         
         # Split and scale
@@ -332,13 +428,13 @@ def get_analytics_data():
         recall = round(recall_score(y_test, y_pred, zero_division=0) * 100, 2)
         f1 = round(f1_score(y_test, y_pred, zero_division=0) * 100, 2)
         
-        # DGIM Algorithm - Monitor risky transactions in sliding window
+        # DGIM Algorithm
         dgim_result = apply_dgim_algorithm(df)
         
-        # Bloom Filter - Check fraudulent identifiers
+        # Bloom Filter
         bloom_result = apply_bloom_filter(df)
         
-        # Girvan-Newman - Detect fraud communities
+        # Girvan-Newman
         girvan_newman_result = apply_girvan_newman(df)
         
         return jsonify({
@@ -361,27 +457,19 @@ def get_analytics_data():
         })
     except Exception as e:
         print(f"Error in /api/analytics-data: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def apply_dgim_algorithm(df):
-    """Apply DGIM algorithm for counting risky transactions in sliding window"""
+    """Apply DGIM algorithm for counting risky transactions"""
     try:
-        # Define risky transaction criteria
-        # Example: Transaction amount > 75th percentile is considered risky
-        if 'Amount' in df.columns:
-            threshold = df['Amount'].quantile(0.75)
-            risky_bits = (df['Amount'] > threshold).astype(int).tolist()
+        if 'Transaction_Amount' in df.columns:
+            threshold = df['Transaction_Amount'].quantile(0.75)
+            risky_bits = (df['Transaction_Amount'] > threshold).astype(int).tolist()
         else:
-            # Use first numeric column
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            if len(numeric_cols) > 0:
-                col = numeric_cols[0]
-                threshold = df[col].quantile(0.75)
-                risky_bits = (df[col] > threshold).astype(int).tolist()
-            else:
-                risky_bits = [0] * len(df)
+            risky_bits = [0] * len(df)
         
-        # Apply DGIM
         dgim = DGIM(window_size=min(1000, len(risky_bits)))
         
         for bit in risky_bits:
@@ -404,25 +492,21 @@ def apply_dgim_algorithm(df):
 def apply_bloom_filter(df):
     """Apply Bloom Filter to detect known fraudulent patterns"""
     try:
-        # Create Bloom Filter with fraud cases
         bloom = BloomFilter(size=10000, hash_count=5)
         
         fraud_df = df[df['Is_Fraud'] == 1]
         
-        # Add fraudulent transaction identifiers to bloom filter
         fraud_identifiers = []
         for idx, row in fraud_df.iterrows():
-            # Create unique identifier from transaction features
-            identifier = f"{row.get('Amount', 0)}_{row.get('Is_Fraud', 0)}"
+            identifier = f"{row.get('Transaction_Amount', 0)}_{row.get('Is_Fraud', 0)}"
             bloom.add(identifier)
             fraud_identifiers.append(identifier)
         
-        # Test bloom filter on all transactions
         test_results = {'true_positives': 0, 'false_positives': 0, 
                        'true_negatives': 0, 'false_negatives': 0}
         
         for idx, row in df.iterrows():
-            identifier = f"{row.get('Amount', 0)}_{row.get('Is_Fraud', 0)}"
+            identifier = f"{row.get('Transaction_Amount', 0)}_{row.get('Is_Fraud', 0)}"
             in_filter = bloom.check(identifier)
             is_fraud = row['Is_Fraud'] == 1
             
@@ -452,26 +536,21 @@ def apply_bloom_filter(df):
 def apply_girvan_newman(df):
     """Apply Girvan-Newman algorithm to detect fraud communities"""
     try:
-        # Build transaction graph
         G = nx.Graph()
         
-        # Sample data if too large
         sample_size = min(500, len(df))
         df_sample = df.sample(n=sample_size, random_state=42)
         
-        # Add nodes (transactions)
         for idx, row in df_sample.iterrows():
             G.add_node(idx, fraud=row['Is_Fraud'])
         
-        # Add edges between similar transactions
-        # Connect transactions with similar amounts
-        if 'Amount' in df_sample.columns:
-            amounts = df_sample['Amount'].values
+        if 'Transaction_Amount' in df_sample.columns:
+            amounts = df_sample['Transaction_Amount'].values
             indices = df_sample.index.values
             
             for i in range(len(amounts)):
-                for j in range(i + 1, min(i + 20, len(amounts))):  # Limit connections
-                    if abs(amounts[i] - amounts[j]) < amounts[i] * 0.1:  # Within 10% similarity
+                for j in range(i + 1, min(i + 20, len(amounts))):
+                    if abs(amounts[i] - amounts[j]) < amounts[i] * 0.1:
                         G.add_edge(indices[i], indices[j])
         
         if G.number_of_edges() == 0:
@@ -480,18 +559,16 @@ def apply_girvan_newman(df):
                 'description': 'No connected transactions found for community detection'
             }
         
-        # Apply Girvan-Newman (limited iterations for performance)
         communities = []
-        k = min(5, G.number_of_nodes() // 10)  # Find ~5 communities
+        k = min(5, G.number_of_nodes() // 10)
         
         comp = nx.community.girvan_newman(G)
-        for communities in range(k):
+        for _ in range(k):
             try:
                 communities = next(comp)
             except StopIteration:
                 break
         
-        # Analyze communities
         if communities:
             community_analysis = []
             for i, community in enumerate(communities):
@@ -524,13 +601,10 @@ def apply_girvan_newman(df):
 
 @app.route('/api/model-features')
 def get_model_features():
-    """Get list of features required for prediction"""
+    """Get list of fields required for the transaction form"""
     try:
-        if feature_columns is None:
-            return jsonify({'error': 'Model not trained'}), 500
-        
         return jsonify({
-            'features': feature_columns
+            'features': TRANSACTION_FIELDS
         })
     except Exception as e:
         print(f"Error in /api/model-features: {e}")
@@ -545,14 +619,22 @@ def predict():
         
         data = request.json
         
-        # Create DataFrame with correct feature order
-        input_df = pd.DataFrame([data], columns=feature_columns)
+        # Create DataFrame
+        input_df = pd.DataFrame([data])
         
-        # Fill missing values with 0
-        input_df = input_df.fillna(0)
+        # Engineer features
+        input_features = engineer_features(input_df)
+        
+        # Ensure all required features are present
+        for col in feature_columns:
+            if col not in input_features.columns:
+                input_features[col] = 0
+        
+        input_features = input_features[feature_columns]  # Reorder columns
+        input_features = input_features.fillna(0)
         
         # Scale features
-        input_scaled = scaler.transform(input_df)
+        input_scaled = scaler.transform(input_features)
         
         # Make prediction
         prediction = int(trained_model.predict(input_scaled)[0])
@@ -565,6 +647,8 @@ def predict():
         })
     except Exception as e:
         print(f"Error in /api/predict: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/add-transaction', methods=['POST'])
@@ -582,7 +666,7 @@ def add_transaction_api():
         # Append to CSV
         csv_exists = os.path.exists(CSV_FILE_PATH)
         
-        with open(CSV_FILE_PATH, 'a', newline='') as csvfile:
+        with open(CSV_FILE_PATH, 'a', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=data.keys())
             
             # Write header if file is new
@@ -602,6 +686,8 @@ def add_transaction_api():
         
     except Exception as e:
         print(f"Error adding transaction: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
