@@ -1,2 +1,3 @@
 Customer_Name,Gender,Age,Customer_Contact,State,City,Transaction_Location,Bank_Branch,Account_Type,Account_Balance,Transaction_Date,Transaction_Time,Transaction_Amount,Transaction_Currency,Transaction_Type,Merchant_Category,Transaction_Device,Device_Type,Transaction_Description,Is_Fraud,timestamp,_id
 Oma,Male,65,+9112121212,Maharashtra,MUMBAI,SFIT,Boriavli,Savings,40000,30-10-2025,02:52:27,40000,INR,Transfer,Healthcare,Mobile App,Mobile,Injury,0,2025-10-30T02:55:35.493297,6902864fc332eccf4605f413
+Sim,Male,78,+9112121212,Maharashtra,Mumbai,SFIT,Borivali,Savings,50000,30-10-2025,03:37:20,40000,INR,Transfer,Online Shopping,Mobile App,Mobile,Phone,1,2025-10-30T03:40:37.282607,690290dd5a5fbe9b84c98d75

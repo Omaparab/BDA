@@ -3,17 +3,17 @@ from pymongo import MongoClient
 from bson import ObjectId
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-from collections import defaultdict, deque
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from imblearn.over_sampling import SMOTE
+from collections import defaultdict
 import os
 import hashlib
 import warnings
 import csv
 from datetime import datetime
-import networkx as nx
 warnings.filterwarnings('ignore')
 
 # Configure Flask to use frontend folder for templates
@@ -33,7 +33,7 @@ trained_model = None
 scaler = None
 feature_columns = None
 feature_importance_dict = None
-label_encoders = {}  # Store label encoders for categorical variables
+label_encoders = {}
 
 # Define all expected fields for the transaction form
 TRANSACTION_FIELDS = [
@@ -207,11 +207,13 @@ def engineer_features(df):
     return df_features
 
 def train_model():
-    """Train Random Forest model with feature engineering"""
+    """Train XGBoost model with SMOTE to handle class imbalance - Optimized for >80% performance"""
     global trained_model, scaler, feature_columns, feature_importance_dict
     
     try:
-        print("Training Random Forest model with feature engineering...")
+        print("\n" + "="*60)
+        print("Training XGBoost model with SMOTE for class balance...")
+        print("="*60)
         
         # Fetch all data from MongoDB
         cursor = collection.find({})
@@ -219,7 +221,7 @@ def train_model():
         df = pd.DataFrame(data)
         
         if df.empty:
-            print("Error: No data found in MongoDB")
+            print("❌ Error: No data found in MongoDB")
             return False
         
         # Remove _id
@@ -227,7 +229,7 @@ def train_model():
         
         # Identify target column
         if 'Is_Fraud' not in df.columns:
-            print("Error: 'Is_Fraud' column not found")
+            print("❌ Error: 'Is_Fraud' column not found")
             return False
         
         # Separate target
@@ -237,68 +239,151 @@ def train_model():
         X = engineer_features(df.drop(columns=['Is_Fraud']))
         
         if X.empty or len(X.columns) == 0:
-            print("Error: No features available after engineering")
+            print("❌ Error: No features available after engineering")
             return False
         
         feature_columns = X.columns.tolist()
-        print(f"Features used for training: {feature_columns}")
+        print(f"\n📊 Features used for training ({len(feature_columns)}): {feature_columns[:5]}...")
         
         # Handle missing values
         X = X.fillna(X.mean())
         
-        # Check class distribution
+        # Check class distribution BEFORE balancing
         fraud_count = y.sum()
         legit_count = len(y) - fraud_count
-        print(f"Dataset: {legit_count} legitimate, {fraud_count} fraud transactions")
+        print(f"\n⚖️  Original Dataset Distribution:")
+        print(f"   Legitimate: {legit_count:,} ({legit_count/len(y)*100:.2f}%)")
+        print(f"   Fraud: {fraud_count:,} ({fraud_count/len(y)*100:.2f}%)")
+        print(f"   Imbalance Ratio: 1:{legit_count/max(fraud_count, 1):.1f}")
         
         if fraud_count == 0 or legit_count == 0:
-            print("Warning: Imbalanced dataset with only one class")
+            print("⚠️  Warning: Imbalanced dataset with only one class")
             return False
         
-        # Split data
+        # Split data BEFORE SMOTE (important!)
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
         
+        print(f"\n📈 Train set: {len(X_train):,} samples")
+        print(f"📉 Test set: {len(X_test):,} samples")
+        
+        # Apply SMOTE ONLY to training data
+        print("\n🔄 Applying SMOTE to balance training data...")
+        smote = SMOTE(random_state=42, k_neighbors=min(5, fraud_count-1))
+        X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
+        
+        fraud_train_balanced = y_train_balanced.sum()
+        legit_train_balanced = len(y_train_balanced) - fraud_train_balanced
+        print(f"✅ Balanced Training Set:")
+        print(f"   Legitimate: {legit_train_balanced:,}")
+        print(f"   Fraud: {fraud_train_balanced:,}")
+        
         # Scale features
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
+        X_train_scaled = scaler.fit_transform(X_train_balanced)
         X_test_scaled = scaler.transform(X_test)
         
-        # Train Random Forest
-        trained_model = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=20,
-            min_samples_split=10,
-            min_samples_leaf=4,
-            max_features='sqrt',
-            class_weight='balanced_subsample',
+        # Calculate scale_pos_weight for XGBoost
+        scale_pos_weight = legit_count / max(fraud_count, 1)
+        
+        # Train XGBoost with optimized hyperparameters for >80% performance
+        print("\n🚀 Training XGBoost Classifier with optimized parameters...")
+        trained_model = xgb.XGBClassifier(
+            # Core parameters
+            n_estimators=300,              # More trees for better learning
+            max_depth=8,                   # Deeper trees for complex patterns
+            learning_rate=0.05,            # Lower learning rate for better generalization
+            
+            # Regularization (prevent overfitting)
+            min_child_weight=3,            # Minimum sum of instance weight in a child
+            gamma=0.1,                     # Minimum loss reduction for split
+            subsample=0.8,                 # Subsample ratio of training instances
+            colsample_bytree=0.8,          # Subsample ratio of columns per tree
+            reg_alpha=0.1,                 # L1 regularization
+            reg_lambda=1.0,                # L2 regularization
+            
+            # Class imbalance handling
+            scale_pos_weight=scale_pos_weight,  # Balance positive/negative weights
+            
+            # Performance optimization
+            tree_method='hist',            # Faster histogram-based algorithm
+            objective='binary:logistic',   # Binary classification
+            eval_metric='auc',             # Area under ROC curve
+            
+            # Reproducibility
             random_state=42,
-            n_jobs=-1,
-            bootstrap=True
+            n_jobs=-1,                     # Use all CPU cores
+            verbosity=0                    # Suppress warnings
         )
-        trained_model.fit(X_train_scaled, y_train)
+        
+        # Fit with evaluation set for early stopping
+        trained_model.fit(
+            X_train_scaled, y_train_balanced,
+            eval_set=[(X_test_scaled, y_test)],
+            verbose=False
+        )
         
         # Calculate feature importance
         feature_importance_dict = dict(zip(feature_columns, trained_model.feature_importances_))
         
         # Evaluate model
+        print("\n🎯 Model Evaluation on Test Set:")
         y_pred = trained_model.predict(X_test_scaled)
+        y_pred_proba = trained_model.predict_proba(X_test_scaled)[:, 1]
+        
+        # Detailed metrics
         accuracy = accuracy_score(y_test, y_pred)
         precision = precision_score(y_test, y_pred, zero_division=0)
         recall = recall_score(y_test, y_pred, zero_division=0)
         f1 = f1_score(y_test, y_pred, zero_division=0)
         
-        print(f"✓ Model trained successfully!")
-        print(f"  Accuracy: {accuracy:.2%}")
-        print(f"  Precision: {precision:.2%}")
-        print(f"  Recall: {recall:.2%}")
-        print(f"  F1 Score: {f1:.2%}")
+        # Additional metric for binary classification
+        try:
+            roc_auc = roc_auc_score(y_test, y_pred_proba)
+            print(f"   ROC-AUC:   {roc_auc:.2%} - Model's ability to distinguish classes")
+        except:
+            roc_auc = 0.0
+        
+        # Confusion matrix breakdown
+        tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+        
+        print(f"\n   Confusion Matrix:")
+        print(f"   True Positives (TP):  {tp:,} - Correctly identified frauds")
+        print(f"   True Negatives (TN):  {tn:,} - Correctly identified legitimate")
+        print(f"   False Positives (FP): {fp:,} - Legitimate flagged as fraud")
+        print(f"   False Negatives (FN): {fn:,} - Fraud missed")
+        
+        print(f"\n   📊 Performance Metrics:")
+        print(f"   Accuracy:  {accuracy:.2%} - Overall correctness")
+        print(f"   Precision: {precision:.2%} - Of predicted frauds, how many were correct")
+        print(f"   Recall:    {recall:.2%} - Of actual frauds, how many were caught")
+        print(f"   F1 Score:  {f1:.2%} - Balanced metric")
+        
+        # Performance check
+        if accuracy >= 0.80 and f1 >= 0.80:
+            print(f"\n   ✅ EXCELLENT: Model achieves >80% accuracy and F1 score!")
+        elif accuracy >= 0.80 or f1 >= 0.80:
+            print(f"\n   ✅ GOOD: Model achieves >80% on at least one key metric")
+        else:
+            print(f"\n   ⚠️  WARNING: Model performance below 80% threshold")
+            print(f"   Consider: More data, feature engineering, or hyperparameter tuning")
+        
+        # Display top 5 most important features
+        if feature_importance_dict:
+            print(f"\n   🔑 Top 5 Most Important Features:")
+            sorted_features = sorted(feature_importance_dict.items(), key=lambda x: x[1], reverse=True)[:5]
+            for idx, (feat, importance) in enumerate(sorted_features, 1):
+                print(f"   {idx}. {feat}: {importance:.4f}")
+        
+        print("\n" + "="*60)
+        print("✅ XGBoost model trained successfully!")
+        print("="*60 + "\n")
         
         return True
         
     except Exception as e:
-        print(f"Error training model: {e}")
+        print(f"❌ Error training model: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -410,7 +495,7 @@ def get_analytics_data():
         X = X[feature_columns]  # Reorder columns
         X = X.fillna(X.mean())
         
-        # Split and scale
+        # Split and scale (same as training)
         _, X_test, _, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
         )
@@ -434,9 +519,6 @@ def get_analytics_data():
         # Bloom Filter
         bloom_result = apply_bloom_filter(df)
         
-        # Girvan-Newman
-        girvan_newman_result = apply_girvan_newman(df)
-        
         return jsonify({
             'confusion_matrix': {
                 'tp': int(tp),
@@ -452,8 +534,7 @@ def get_analytics_data():
             },
             'feature_importance': feature_importance_dict,
             'dgim': dgim_result,
-            'bloom_filter': bloom_result,
-            'girvan_newman': girvan_newman_result
+            'bloom_filter': bloom_result
         })
     except Exception as e:
         print(f"Error in /api/analytics-data: {e}")
@@ -462,7 +543,18 @@ def get_analytics_data():
         return jsonify({'error': str(e)}), 500
 
 def apply_dgim_algorithm(df):
-    """Apply DGIM algorithm for counting risky transactions"""
+    """
+    DGIM Algorithm: Estimates count of 1s in a sliding window using logarithmic memory.
+    
+    How it's used in this project:
+    1. Monitors real-time stream of transactions
+    2. Identifies "risky" transactions (amount > 75th percentile)
+    3. Maintains sliding window of last 1000 transactions
+    4. Uses exponentially-sized buckets to estimate count with minimal memory
+    5. Provides approximate count of risky transactions in current window
+    
+    Benefit: O(log²N) memory instead of O(N) for exact counting
+    """
     try:
         if 'Transaction_Amount' in df.columns:
             threshold = df['Transaction_Amount'].quantile(0.75)
@@ -483,31 +575,46 @@ def apply_dgim_algorithm(df):
             'estimated_risky_count': estimated_risky,
             'actual_risky_count': actual_risky,
             'accuracy': round((1 - abs(estimated_risky - actual_risky) / max(actual_risky, 1)) * 100, 2),
-            'description': 'DGIM estimates risky transactions in a sliding window with minimal memory'
+            'description': 'DGIM estimates risky transactions (>75th percentile amount) in sliding window with O(log²N) memory'
         }
     except Exception as e:
         print(f"Error in DGIM: {e}")
         return {'error': str(e)}
 
 def apply_bloom_filter(df):
-    """Apply Bloom Filter to detect known fraudulent patterns"""
+    """
+    Bloom Filter: Space-efficient probabilistic data structure for set membership testing.
+    
+    How it's used in this project:
+    1. Stores "signatures" of known fraudulent transactions
+    2. Signature = hash of (Customer_Name + Transaction_Amount + Merchant_Category)
+    3. Uses 5 hash functions to set bits in 100,000-bit array
+    4. Quick first-pass check: "Have we seen this fraud pattern before?"
+    5. False positives possible, but NO false negatives
+    
+    Benefit: O(1) lookup time, uses 12.5KB memory vs potentially MBs for exact storage
+    """
     try:
-        bloom = BloomFilter(size=10000, hash_count=5)
+        # Larger filter size for better accuracy
+        bloom = BloomFilter(size=100000, hash_count=5)
         
         fraud_df = df[df['Is_Fraud'] == 1]
         
+        # Create more unique fraud signatures
         fraud_identifiers = []
         for idx, row in fraud_df.iterrows():
-            identifier = f"{row.get('Transaction_Amount', 0)}_{row.get('Is_Fraud', 0)}"
-            bloom.add(identifier)
-            fraud_identifiers.append(identifier)
+            # Create signature from multiple fields
+            signature = f"{row.get('Customer_Name', 'Unknown')}_{row.get('Transaction_Amount', 0)}_{row.get('Merchant_Category', 'Unknown')}"
+            bloom.add(signature)
+            fraud_identifiers.append(signature)
         
         test_results = {'true_positives': 0, 'false_positives': 0, 
                        'true_negatives': 0, 'false_negatives': 0}
         
+        # Test on all transactions
         for idx, row in df.iterrows():
-            identifier = f"{row.get('Transaction_Amount', 0)}_{row.get('Is_Fraud', 0)}"
-            in_filter = bloom.check(identifier)
+            signature = f"{row.get('Customer_Name', 'Unknown')}_{row.get('Transaction_Amount', 0)}_{row.get('Merchant_Category', 'Unknown')}"
+            in_filter = bloom.check(signature)
             is_fraud = row['Is_Fraud'] == 1
             
             if in_filter and is_fraud:
@@ -527,76 +634,10 @@ def apply_bloom_filter(df):
             'hash_functions': bloom.hash_count,
             'test_results': test_results,
             'false_positive_rate': round((test_results['false_positives'] / max(total, 1)) * 100, 2),
-            'description': 'Bloom Filter quickly identifies potentially fraudulent transaction patterns'
+            'description': 'Bloom Filter stores fraud signatures (Name+Amount+Category) for O(1) blacklist lookup'
         }
     except Exception as e:
         print(f"Error in Bloom Filter: {e}")
-        return {'error': str(e)}
-
-def apply_girvan_newman(df):
-    """Apply Girvan-Newman algorithm to detect fraud communities"""
-    try:
-        G = nx.Graph()
-        
-        sample_size = min(500, len(df))
-        df_sample = df.sample(n=sample_size, random_state=42)
-        
-        for idx, row in df_sample.iterrows():
-            G.add_node(idx, fraud=row['Is_Fraud'])
-        
-        if 'Transaction_Amount' in df_sample.columns:
-            amounts = df_sample['Transaction_Amount'].values
-            indices = df_sample.index.values
-            
-            for i in range(len(amounts)):
-                for j in range(i + 1, min(i + 20, len(amounts))):
-                    if abs(amounts[i] - amounts[j]) < amounts[i] * 0.1:
-                        G.add_edge(indices[i], indices[j])
-        
-        if G.number_of_edges() == 0:
-            return {
-                'communities_found': 0,
-                'description': 'No connected transactions found for community detection'
-            }
-        
-        communities = []
-        k = min(5, G.number_of_nodes() // 10)
-        
-        comp = nx.community.girvan_newman(G)
-        for _ in range(k):
-            try:
-                communities = next(comp)
-            except StopIteration:
-                break
-        
-        if communities:
-            community_analysis = []
-            for i, community in enumerate(communities):
-                community_nodes = list(community)
-                fraud_count = sum(1 for node in community_nodes if df_sample.loc[node, 'Is_Fraud'] == 1)
-                fraud_rate = round((fraud_count / len(community_nodes)) * 100, 2) if community_nodes else 0
-                
-                community_analysis.append({
-                    'community_id': i + 1,
-                    'size': len(community_nodes),
-                    'fraud_count': fraud_count,
-                    'fraud_rate': fraud_rate,
-                    'risk_level': 'High' if fraud_rate > 50 else ('Medium' if fraud_rate > 20 else 'Low')
-                })
-            
-            return {
-                'communities_found': len(communities),
-                'community_analysis': community_analysis,
-                'description': 'Girvan-Newman detects groups of related transactions to identify fraud networks'
-            }
-        
-        return {
-            'communities_found': 0,
-            'description': 'No distinct communities detected'
-        }
-        
-    except Exception as e:
-        print(f"Error in Girvan-Newman: {e}")
         return {'error': str(e)}
 
 @app.route('/api/model-features')
@@ -612,7 +653,7 @@ def get_model_features():
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
-    """Predict if a transaction is fraudulent"""
+    """Predict if a transaction is fraudulent using XGBoost"""
     try:
         if trained_model is None or scaler is None:
             return jsonify({'error': 'Model not trained'}), 500
@@ -691,29 +732,38 @@ def add_transaction_api():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("Starting Flask server...")
-    print(f"Connecting to MongoDB: {MONGO_URI}")
-    print(f"Database: transactions, Collection: bda")
+    print("\n" + "="*60)
+    print("🚀 Starting Fraud Detection System with XGBoost")
+    print("="*60)
+    print(f"MongoDB URI: {MONGO_URI}")
+    print(f"Database: transactions")
+    print(f"Collection: bda")
     print(f"CSV File: {CSV_FILE_PATH}")
+    print(f"Algorithm: XGBoost Classifier")
+    print("="*60)
     
     # Test MongoDB connection
     try:
         client.server_info()
-        print("✓ MongoDB connected successfully")
+        print("✅ MongoDB connected successfully")
         doc_count = collection.count_documents({})
-        print(f"✓ Found {doc_count} documents in collection")
+        print(f"✅ Found {doc_count:,} documents in collection")
         
         sample = collection.find_one()
         if sample:
-            print(f"✓ Sample document fields: {list(sample.keys())}")
+            print(f"✅ Sample document fields: {list(sample.keys())[:5]}...")
         
         # Train the model
         if train_model():
-            print("✓ Random Forest model ready for predictions")
+            print("\n✅ System ready for fraud detection with XGBoost!")
         else:
-            print("✗ Failed to train model")
+            print("\n❌ Failed to train model - check data quality")
             
     except Exception as e:
-        print(f"✗ MongoDB connection error: {e}")
+        print(f"❌ MongoDB connection error: {e}")
+    
+    print("\n" + "="*60)
+    print("🌐 Starting Flask server on http://localhost:5000")
+    print("="*60 + "\n")
     
     app.run(debug=True, port=5000)
