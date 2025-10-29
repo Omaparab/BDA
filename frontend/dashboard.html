@@ -43,22 +43,23 @@
 <body>
     <div class="container">
         <nav>
-            <div class="logo">SafePay</div>
+            <div class="logo">🔐 SafePay</div>
             <div class="nav-links">
                 <a href="/" class="active">Dashboard</a>
                 <a href="/analytics">Analytics</a>
+                <a href="/add-transaction">Add Transaction</a>
             </div>
         </nav>
 
         <header>
-            <h1>Fraud Detection Dashboard</h1>
+            <h1>📊 Fraud Detection Dashboard</h1>
             <p style="color: #718096; margin-top: 8px;">Real-time Transaction Monitoring & Analytics</p>
         </header>
 
         <div class="grid stats" id="stats"></div>
 
         <div class="card">
-            <h2>Transaction Data</h2>
+            <h2>💳 Transaction Data</h2>
             <div class="filters">
                 <button class="filter-btn active" onclick="filterData('all')">All Transactions</button>
                 <button class="filter-btn" onclick="filterData('fraud')">Fraudulent Only</button>
@@ -79,10 +80,22 @@
             .then(r => r.json())
             .then(d => {
                 document.getElementById('stats').innerHTML = `
-                    <div class="card"><div class="label">Total Transactions</div><div class="value">${d.total_transactions.toLocaleString()}</div></div>
-                    <div class="card"><div class="label">Fraud Cases</div><div class="value" style="color:#e53e3e">${d.fraud_cases.toLocaleString()}</div></div>
-                    <div class="card"><div class="label">Legitimate Cases</div><div class="value" style="color:#38a169">${d.legitimate_cases.toLocaleString()}</div></div>
-                    <div class="card"><div class="label">Fraud Rate</div><div class="value">${d.fraud_percentage}%</div></div>
+                    <div class="card">
+                        <div class="label">Total Transactions</div>
+                        <div class="value">${d.total_transactions.toLocaleString()}</div>
+                    </div>
+                    <div class="card">
+                        <div class="label">Fraud Cases</div>
+                        <div class="value" style="color:#e53e3e">${d.fraud_cases.toLocaleString()}</div>
+                    </div>
+                    <div class="card">
+                        <div class="label">Legitimate Cases</div>
+                        <div class="value" style="color:#38a169">${d.legitimate_cases.toLocaleString()}</div>
+                    </div>
+                    <div class="card">
+                        <div class="label">Fraud Rate</div>
+                        <div class="value">${d.fraud_percentage}%</div>
+                    </div>
                 `;
             });
 
@@ -99,7 +112,7 @@
                     
                     // Build table dynamically based on available fields
                     const firstRow = d.data[0] || {};
-                    const columns = Object.keys(firstRow).filter(k => k !== '_id');
+                    const columns = Object.keys(firstRow).filter(k => k !== '_id' && k !== 'timestamp');
                     
                     document.getElementById('table-container').innerHTML = `
                         <table>

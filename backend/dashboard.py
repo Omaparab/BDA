@@ -7,12 +7,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.pipeline import Pipeline as ImbPipeline
+from collections import defaultdict, deque
 import os
 import hashlib
 import warnings
+import csv
+from datetime import datetime
+import networkx as nx
 warnings.filterwarnings('ignore')
 
 # Configure Flask to use frontend folder for templates
@@ -24,11 +25,90 @@ client = MongoClient(MONGO_URI)
 db = client['transactions']
 collection = db['bda']
 
+# CSV File Path
+CSV_FILE_PATH = 'transactions_data.csv'
+
 # Global variables for trained model
 trained_model = None
 scaler = None
 feature_columns = None
 feature_importance_dict = None
+
+# DGIM Algorithm Implementation
+class DGIMBucket:
+    def __init__(self, timestamp, size):
+        self.timestamp = timestamp
+        self.size = size
+
+class DGIM:
+    def __init__(self, window_size=1000):
+        self.window_size = window_size
+        self.buckets = []
+        self.current_timestamp = 0
+    
+    def update(self, bit):
+        self.current_timestamp += 1
+        
+        if bit == 1:
+            self.buckets.append(DGIMBucket(self.current_timestamp, 1))
+            self._merge_buckets()
+        
+        # Remove old buckets outside window
+        self.buckets = [b for b in self.buckets 
+                       if self.current_timestamp - b.timestamp < self.window_size]
+    
+    def _merge_buckets(self):
+        # Merge buckets of same size if there are more than 2
+        size_count = defaultdict(int)
+        for bucket in self.buckets:
+            size_count[bucket.size] += 1
+        
+        for size in sorted(size_count.keys()):
+            if size_count[size] > 2:
+                # Merge oldest two buckets of this size
+                buckets_of_size = [b for b in self.buckets if b.size == size]
+                buckets_of_size.sort(key=lambda x: x.timestamp)
+                
+                if len(buckets_of_size) >= 2:
+                    b1, b2 = buckets_of_size[0], buckets_of_size[1]
+                    self.buckets.remove(b1)
+                    self.buckets.remove(b2)
+                    self.buckets.append(DGIMBucket(b2.timestamp, size * 2))
+    
+    def query(self):
+        # Estimate count of 1s in window
+        if not self.buckets:
+            return 0
+        
+        total = sum(b.size for b in self.buckets[:-1])
+        # Add half of the oldest bucket as estimate
+        if self.buckets:
+            total += self.buckets[-1].size // 2
+        
+        return total
+
+# Bloom Filter Implementation
+class BloomFilter:
+    def __init__(self, size=10000, hash_count=5):
+        self.size = size
+        self.hash_count = hash_count
+        self.bit_array = [0] * size
+    
+    def _hash(self, item, seed):
+        hash_obj = hashlib.md5(f"{item}{seed}".encode())
+        return int(hash_obj.hexdigest(), 16) % self.size
+    
+    def add(self, item):
+        for i in range(self.hash_count):
+            index = self._hash(item, i)
+            self.bit_array[index] = 1
+    
+    def check(self, item):
+        for i in range(self.hash_count):
+            index = self._hash(item, i)
+            if self.bit_array[index] == 0:
+                return False
+        return True
 
 def serialize_doc(doc):
     """Convert MongoDB document to JSON-serializable format"""
@@ -48,16 +128,20 @@ def serialize_doc(doc):
     return serialized
 
 def train_model():
-    """Train Random Forest model on the dataset"""
+    """Train Random Forest model with improved parameters for imbalanced data"""
     global trained_model, scaler, feature_columns, feature_importance_dict
     
     try:
-        print("Training Random Forest model...")
+        print("Training Random Forest model with balanced settings...")
         
         # Fetch all data from MongoDB
         cursor = collection.find({})
         data = list(cursor)
         df = pd.DataFrame(data)
+        
+        if df.empty:
+            print("Error: No data found in MongoDB")
+            return False
         
         # Remove non-numeric columns and _id
         df = df.drop(columns=['_id'], errors='ignore')
@@ -78,6 +162,11 @@ def train_model():
         # Handle missing values
         X = X.fillna(X.mean())
         
+        # Check class distribution
+        fraud_count = y.sum()
+        legit_count = len(y) - fraud_count
+        print(f"Dataset: {legit_count} legitimate, {fraud_count} fraud transactions")
+        
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=y
@@ -88,15 +177,17 @@ def train_model():
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # Train Random Forest with class balancing
+        # Train Random Forest with optimized parameters for fraud detection
         trained_model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=15,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            class_weight='balanced',  # Critical for imbalanced data
+            n_estimators=200,
+            max_depth=20,
+            min_samples_split=10,
+            min_samples_leaf=4,
+            max_features='sqrt',
+            class_weight='balanced_subsample',  # Better for highly imbalanced data
             random_state=42,
-            n_jobs=-1
+            n_jobs=-1,
+            bootstrap=True
         )
         trained_model.fit(X_train_scaled, y_train)
         
@@ -106,50 +197,23 @@ def train_model():
         # Evaluate model
         y_pred = trained_model.predict(X_test_scaled)
         accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        recall = recall_score(y_test, y_pred, zero_division=0)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
         
-        print(f"✓ Model trained successfully! Accuracy: {accuracy:.2%}")
+        print(f"✓ Model trained successfully!")
+        print(f"  Accuracy: {accuracy:.2%}")
+        print(f"  Precision: {precision:.2%}")
+        print(f"  Recall: {recall:.2%}")
+        print(f"  F1 Score: {f1:.2%}")
+        
         return True
         
     except Exception as e:
         print(f"Error training model: {e}")
         return False
 
-def flajolet_martin(values):
-    """
-    Flajolet-Martin algorithm for estimating unique count
-    Uses multiple hash functions for better accuracy
-    """
-    def hash_value(val, seed):
-        """Hash function with seed"""
-        hash_obj = hashlib.md5(f"{val}{seed}".encode())
-        return int(hash_obj.hexdigest(), 16)
-    
-    def trailing_zeros(n):
-        """Count trailing zeros in binary representation"""
-        if n == 0:
-            return 0
-        count = 0
-        while (n & 1) == 0:
-            count += 1
-            n >>= 1
-        return count
-    
-    # Use multiple hash functions for better accuracy
-    num_hash_functions = 10
-    max_trailing_zeros = [0] * num_hash_functions
-    
-    for value in values:
-        for i in range(num_hash_functions):
-            hashed = hash_value(value, i)
-            zeros = trailing_zeros(hashed)
-            max_trailing_zeros[i] = max(max_trailing_zeros[i], zeros)
-    
-    # Calculate estimates from each hash function
-    estimates = [2 ** r for r in max_trailing_zeros]
-    
-    # Return median estimate (more robust than mean)
-    return int(np.median(estimates))
-
+# Routes
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
@@ -157,6 +221,10 @@ def dashboard():
 @app.route('/analytics')
 def analytics():
     return render_template('analytics.html')
+
+@app.route('/add-transaction')
+def add_transaction():
+    return render_template('add_transaction.html')
 
 @app.route('/api/data')
 def get_data():
@@ -198,7 +266,7 @@ def get_data():
 
 @app.route('/api/stats')
 def get_stats():
-    """Get dataset statistics from MongoDB"""
+    """Get dataset statistics - cached in memory"""
     try:
         cursor = collection.find({}, {'Is_Fraud': 1})
         data = list(cursor)
@@ -227,9 +295,9 @@ def get_stats():
         print(f"Error in /api/stats: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/confusion-matrix')
-def get_confusion_matrix():
-    """Get confusion matrix and model metrics"""
+@app.route('/api/analytics-data')
+def get_analytics_data():
+    """Get all analytics data in one call - confusion matrix, DGIM, Bloom Filter, Girvan-Newman"""
     try:
         if trained_model is None or scaler is None:
             return jsonify({'error': 'Model not trained'}), 500
@@ -264,6 +332,15 @@ def get_confusion_matrix():
         recall = round(recall_score(y_test, y_pred, zero_division=0) * 100, 2)
         f1 = round(f1_score(y_test, y_pred, zero_division=0) * 100, 2)
         
+        # DGIM Algorithm - Monitor risky transactions in sliding window
+        dgim_result = apply_dgim_algorithm(df)
+        
+        # Bloom Filter - Check fraudulent identifiers
+        bloom_result = apply_bloom_filter(df)
+        
+        # Girvan-Newman - Detect fraud communities
+        girvan_newman_result = apply_girvan_newman(df)
+        
         return jsonify({
             'confusion_matrix': {
                 'tp': int(tp),
@@ -277,39 +354,173 @@ def get_confusion_matrix():
                 'recall': recall,
                 'f1_score': f1
             },
-            'feature_importance': feature_importance_dict
+            'feature_importance': feature_importance_dict,
+            'dgim': dgim_result,
+            'bloom_filter': bloom_result,
+            'girvan_newman': girvan_newman_result
         })
     except Exception as e:
-        print(f"Error in /api/confusion-matrix: {e}")
+        print(f"Error in /api/analytics-data: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/flajolet-martin')
-def get_flajolet_martin():
-    """Apply Flajolet-Martin algorithm to estimate unique values"""
+def apply_dgim_algorithm(df):
+    """Apply DGIM algorithm for counting risky transactions in sliding window"""
     try:
-        cursor = collection.find({})
-        data = list(cursor)
-        df = pd.DataFrame(data)
+        # Define risky transaction criteria
+        # Example: Transaction amount > 75th percentile is considered risky
+        if 'Amount' in df.columns:
+            threshold = df['Amount'].quantile(0.75)
+            risky_bits = (df['Amount'] > threshold).astype(int).tolist()
+        else:
+            # Use first numeric column
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                col = numeric_cols[0]
+                threshold = df[col].quantile(0.75)
+                risky_bits = (df[col] > threshold).astype(int).tolist()
+            else:
+                risky_bits = [0] * len(df)
         
-        df = df.drop(columns=['_id'], errors='ignore')
+        # Apply DGIM
+        dgim = DGIM(window_size=min(1000, len(risky_bits)))
         
-        unique_counts = {}
+        for bit in risky_bits:
+            dgim.update(bit)
         
-        # Apply FM algorithm to each column
-        for column in df.columns:
-            if column != 'Is_Fraud':
-                values = df[column].astype(str).tolist()
-                estimated_unique = flajolet_martin(values)
-                unique_counts[column] = estimated_unique
+        estimated_risky = dgim.query()
+        actual_risky = sum(risky_bits[-dgim.window_size:]) if len(risky_bits) >= dgim.window_size else sum(risky_bits)
         
-        return jsonify({
-            'unique_counts': unique_counts,
-            'algorithm': 'Flajolet-Martin',
-            'description': 'Probabilistic algorithm for cardinality estimation'
-        })
+        return {
+            'window_size': dgim.window_size,
+            'estimated_risky_count': estimated_risky,
+            'actual_risky_count': actual_risky,
+            'accuracy': round((1 - abs(estimated_risky - actual_risky) / max(actual_risky, 1)) * 100, 2),
+            'description': 'DGIM estimates risky transactions in a sliding window with minimal memory'
+        }
     except Exception as e:
-        print(f"Error in /api/flajolet-martin: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in DGIM: {e}")
+        return {'error': str(e)}
+
+def apply_bloom_filter(df):
+    """Apply Bloom Filter to detect known fraudulent patterns"""
+    try:
+        # Create Bloom Filter with fraud cases
+        bloom = BloomFilter(size=10000, hash_count=5)
+        
+        fraud_df = df[df['Is_Fraud'] == 1]
+        
+        # Add fraudulent transaction identifiers to bloom filter
+        fraud_identifiers = []
+        for idx, row in fraud_df.iterrows():
+            # Create unique identifier from transaction features
+            identifier = f"{row.get('Amount', 0)}_{row.get('Is_Fraud', 0)}"
+            bloom.add(identifier)
+            fraud_identifiers.append(identifier)
+        
+        # Test bloom filter on all transactions
+        test_results = {'true_positives': 0, 'false_positives': 0, 
+                       'true_negatives': 0, 'false_negatives': 0}
+        
+        for idx, row in df.iterrows():
+            identifier = f"{row.get('Amount', 0)}_{row.get('Is_Fraud', 0)}"
+            in_filter = bloom.check(identifier)
+            is_fraud = row['Is_Fraud'] == 1
+            
+            if in_filter and is_fraud:
+                test_results['true_positives'] += 1
+            elif in_filter and not is_fraud:
+                test_results['false_positives'] += 1
+            elif not in_filter and not is_fraud:
+                test_results['true_negatives'] += 1
+            else:
+                test_results['false_negatives'] += 1
+        
+        total = sum(test_results.values())
+        
+        return {
+            'fraud_patterns_stored': len(fraud_identifiers),
+            'filter_size': bloom.size,
+            'hash_functions': bloom.hash_count,
+            'test_results': test_results,
+            'false_positive_rate': round((test_results['false_positives'] / max(total, 1)) * 100, 2),
+            'description': 'Bloom Filter quickly identifies potentially fraudulent transaction patterns'
+        }
+    except Exception as e:
+        print(f"Error in Bloom Filter: {e}")
+        return {'error': str(e)}
+
+def apply_girvan_newman(df):
+    """Apply Girvan-Newman algorithm to detect fraud communities"""
+    try:
+        # Build transaction graph
+        G = nx.Graph()
+        
+        # Sample data if too large
+        sample_size = min(500, len(df))
+        df_sample = df.sample(n=sample_size, random_state=42)
+        
+        # Add nodes (transactions)
+        for idx, row in df_sample.iterrows():
+            G.add_node(idx, fraud=row['Is_Fraud'])
+        
+        # Add edges between similar transactions
+        # Connect transactions with similar amounts
+        if 'Amount' in df_sample.columns:
+            amounts = df_sample['Amount'].values
+            indices = df_sample.index.values
+            
+            for i in range(len(amounts)):
+                for j in range(i + 1, min(i + 20, len(amounts))):  # Limit connections
+                    if abs(amounts[i] - amounts[j]) < amounts[i] * 0.1:  # Within 10% similarity
+                        G.add_edge(indices[i], indices[j])
+        
+        if G.number_of_edges() == 0:
+            return {
+                'communities_found': 0,
+                'description': 'No connected transactions found for community detection'
+            }
+        
+        # Apply Girvan-Newman (limited iterations for performance)
+        communities = []
+        k = min(5, G.number_of_nodes() // 10)  # Find ~5 communities
+        
+        comp = nx.community.girvan_newman(G)
+        for communities in range(k):
+            try:
+                communities = next(comp)
+            except StopIteration:
+                break
+        
+        # Analyze communities
+        if communities:
+            community_analysis = []
+            for i, community in enumerate(communities):
+                community_nodes = list(community)
+                fraud_count = sum(1 for node in community_nodes if df_sample.loc[node, 'Is_Fraud'] == 1)
+                fraud_rate = round((fraud_count / len(community_nodes)) * 100, 2) if community_nodes else 0
+                
+                community_analysis.append({
+                    'community_id': i + 1,
+                    'size': len(community_nodes),
+                    'fraud_count': fraud_count,
+                    'fraud_rate': fraud_rate,
+                    'risk_level': 'High' if fraud_rate > 50 else ('Medium' if fraud_rate > 20 else 'Low')
+                })
+            
+            return {
+                'communities_found': len(communities),
+                'community_analysis': community_analysis,
+                'description': 'Girvan-Newman detects groups of related transactions to identify fraud networks'
+            }
+        
+        return {
+            'communities_found': 0,
+            'description': 'No distinct communities detected'
+        }
+        
+    except Exception as e:
+        print(f"Error in Girvan-Newman: {e}")
+        return {'error': str(e)}
 
 @app.route('/api/model-features')
 def get_model_features():
@@ -356,10 +567,48 @@ def predict():
         print(f"Error in /api/predict: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/add-transaction', methods=['POST'])
+def add_transaction_api():
+    """Add new transaction to MongoDB and CSV"""
+    try:
+        data = request.json
+        
+        # Add timestamp
+        data['timestamp'] = datetime.now().isoformat()
+        
+        # Insert into MongoDB
+        result = collection.insert_one(data)
+        
+        # Append to CSV
+        csv_exists = os.path.exists(CSV_FILE_PATH)
+        
+        with open(CSV_FILE_PATH, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data.keys())
+            
+            # Write header if file is new
+            if not csv_exists or os.path.getsize(CSV_FILE_PATH) == 0:
+                writer.writeheader()
+            
+            writer.writerow(data)
+        
+        # Retrain model with new data
+        train_model()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Transaction added successfully',
+            'id': str(result.inserted_id)
+        })
+        
+    except Exception as e:
+        print(f"Error adding transaction: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("Starting Flask server...")
     print(f"Connecting to MongoDB: {MONGO_URI}")
     print(f"Database: transactions, Collection: bda")
+    print(f"CSV File: {CSV_FILE_PATH}")
     
     # Test MongoDB connection
     try:

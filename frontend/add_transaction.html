@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Transaction - Fraud Detection</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #2d3748; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+        header { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; }
+        h1 { font-size: 28px; font-weight: 600; }
+        h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+        .card { background: white; padding: 32px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        nav { background: white; padding: 16px 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }
+        nav .logo { font-size: 20px; font-weight: 600; color: #2d3748; }
+        nav .nav-links { display: flex; gap: 24px; align-items: center; }
+        nav a { color: #4a5568; text-decoration: none; font-weight: 500; transition: color 0.2s; }
+        nav a:hover { color: #4299e1; }
+        nav a.active { color: #4299e1; font-weight: 600; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #4a5568; font-size: 14px; }
+        .form-group input, .form-group select { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; }
+        .form-group input:required:invalid { border-color: #fc8181; }
+        .btn { padding: 14px 28px; background: #4299e1; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-size: 16px; width: 100%; }
+        .btn:hover { background: #3182ce; }
+        .btn:disabled { background: #cbd5e0; cursor: not-allowed; }
+        .btn-secondary { background: #718096; margin-left: 12px; }
+        .btn-secondary:hover { background: #4a5568; }
+        .alert { padding: 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500; display: none; }
+        .alert-success { background: #c6f6d5; color: #22543d; border-left: 4px solid #48bb78; }
+        .alert-error { background: #fed7d7; color: #742a2a; border-left: 4px solid #e53e3e; }
+        .info-box { background: #ebf8ff; border-left: 4px solid #4299e1; padding: 16px; border-radius: 4px; margin-bottom: 24px; }
+        .info-box p { color: #2c5282; margin: 4px 0; line-height: 1.5; }
+        .button-group { display: flex; gap: 12px; margin-top: 24px; }
+        .prediction-box { margin-top: 24px; padding: 20px; border-radius: 8px; font-weight: 600; text-align: center; display: none; }
+        .prediction-fraud { background: #fed7d7; color: #742a2a; border: 2px solid #e53e3e; }
+        .prediction-legit { background: #c6f6d5; color: #22543d; border: 2px solid #48bb78; }
+        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #4299e1; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .help-text { font-size: 12px; color: #718096; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <div class="logo">🔐 SafePay</div>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/add-transaction" class="active">Add Transaction</a>
+            </div>
+        </nav>
+
+        <header>
+            <h1>➕ Add New Transaction</h1>
+            <p style="color: #718096; margin-top: 8px;">Submit transaction data for fraud detection analysis</p>
+        </header>
+
+        <div class="card">
+            <div class="info-box">
+                <p><strong>📝 Instructions:</strong> Fill in all transaction details below. The system will:</p>
+                <p>• Predict if the transaction is fraudulent using our ML model</p>
+                <p>• Save the transaction to MongoDB database (Collection: bda, Database: transactions)</p>
+                <p>• Append the data to CSV file for backup and analysis</p>
+                <p>• Automatically retrain the model with the new data</p>
+            </div>
+
+            <div id="alert-box" class="alert"></div>
+
+            <form id="transaction-form">
+                <div id="form-fields-container"></div>
+
+                <div id="prediction-result" class="prediction-box"></div>
+
+                <div class="button-group">
+                    <button type="button" class="btn" id="predict-btn" onclick="predictTransaction()">
+                        🔍 Predict Fraud Risk
+                    </button>
+                    <button type="submit" class="btn btn-secondary" id="submit-btn">
+                        💾 Save Transaction
+                    </button>
+                </div>
+
+                <div class="help-text" style="text-align: center; margin-top: 16px;">
+                    💡 Tip: Predict first to see fraud risk before saving
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let modelFeatures = [];
+        let currentPrediction = null;
+
+        // Load model features and create form
+        fetch('/api/model-features')
+            .then(r => r.json())
+            .then(data => {
+                modelFeatures = data.features;
+                createFormFields();
+            })
+            .catch(e => {
+                showAlert('Error loading form fields. Please refresh the page.', 'error');
+            });
+
+        function createFormFields() {
+            const container = document.getElementById('form-fields-container');
+            
+            // Common transaction fields with better UX
+            const fieldConfigs = {
+                'Amount': { type: 'number', step: '0.01', help: 'Transaction amount in rupees', required: true },
+                'Is_Fraud': { type: 'select', options: [
+                    { value: '0', label: 'Legitimate Transaction' },
+                    { value: '1', label: 'Fraudulent Transaction' }
+                ], help: 'Mark as fraud if confirmed fraudulent', required: true }
+            };
+
+            let html = '<div class="form-grid">';
+
+            modelFeatures.forEach(feature => {
+                const config = fieldConfigs[feature] || { type: 'number', step: 'any', required: true };
+                
+                html += `<div class="form-group">`;
+                html += `<label for="${feature}">${feature.replace(/_/g, ' ')}</label>`;
+                
+                if (config.type === 'select') {
+                    html += `<select id="${feature}" name="${feature}" ${config.required ? 'required' : ''}>`;
+                    config.options.forEach(opt => {
+                        html += `<option value="${opt.value}">${opt.label}</option>`;
+                    });
+                    html += `</select>`;
+                } else {
+                    html += `<input type="${config.type}" id="${feature}" name="${feature}" 
+                            step="${config.step}" ${config.required ? 'required' : ''} 
+                            placeholder="Enter ${feature.toLowerCase().replace(/_/g, ' ')}">`;
+                }
+                
+                if (config.help) {
+                    html += `<div class="help-text">${config.help}</div>`;
+                }
+                
+                html += `</div>`;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function getFormData() {
+            const data = {};
+            modelFeatures.forEach(feature => {
+                const element = document.getElementById(feature);
+                if (element) {
+                    const value = element.value;
+                    // Convert to appropriate type
+                    if (element.type === 'number' || element.tagName === 'SELECT') {
+                        data[feature] = parseFloat(value) || 0;
+                    } else {
+                        data[feature] = value;
+                    }
+                }
+            });
+            return data;
+        }
+
+        async function predictTransaction() {
+            const btn = document.getElementById('predict-btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span> Analyzing...';
+            
+            const predictionBox = document.getElementById('prediction-result');
+            predictionBox.style.display = 'none';
+
+            try {
+                const data = getFormData();
+                
+                const response = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Prediction failed');
+
+                const result = await response.json();
+                currentPrediction = result;
+
+                predictionBox.style.display = 'block';
+                
+                if (result.prediction === 1) {
+                    predictionBox.className = 'prediction-box prediction-fraud';
+                    predictionBox.innerHTML = `
+                        <div style="font-size: 48px; margin-bottom: 10px;">⚠️</div>
+                        <div style="font-size: 24px; margin-bottom: 8px;">HIGH FRAUD RISK DETECTED</div>
+                        <div style="font-size: 18px;">Confidence: ${result.probability}%</div>
+                        <div style="margin-top: 12px; font-size: 14px; font-weight: normal;">
+                            ⚡ This transaction shows characteristics of fraudulent activity
+                        </div>
+                    `;
+                } else {
+                    predictionBox.className = 'prediction-box prediction-legit';
+                    predictionBox.innerHTML = `
+                        <div style="font-size: 48px; margin-bottom: 10px;">✅</div>
+                        <div style="font-size: 24px; margin-bottom: 8px;">LEGITIMATE TRANSACTION</div>
+                        <div style="font-size: 18px;">Confidence: ${result.probability}%</div>
+                        <div style="margin-top: 12px; font-size: 14px; font-weight: normal;">
+                            ✓ This transaction appears to be legitimate
+                        </div>
+                    `;
+                }
+
+                predictionBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            } catch (error) {
+                showAlert('Error making prediction. Please check your input and try again.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        document.getElementById('transaction-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submit-btn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="loading-spinner"></span> Saving...';
+
+            try {
+                const data = getFormData();
+
+                const response = await fetch('/api/add-transaction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to save transaction');
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showAlert(`✅ Transaction saved successfully! (ID: ${result.id})<br>
+                              📊 Data added to MongoDB and CSV file<br>
+                              🤖 Model retrained with new data`, 'success');
+                    
+                    // Reset form
+                    document.getElementById('transaction-form').reset();
+                    document.getElementById('prediction-result').style.display = 'none';
+                    currentPrediction = null;
+
+                    // Scroll to top
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                    throw new Error(result.message || 'Unknown error');
+                }
+
+            } catch (error) {
+                showAlert(`❌ Error saving transaction: ${error.message}`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        });
+
+        function showAlert(message, type) {
+            const alertBox = document.getElementById('alert-box');
+            alertBox.className = `alert alert-${type}`;
+            alertBox.innerHTML = message;
+            alertBox.style.display = 'block';
+            
+            // Auto-hide success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    alertBox.style.display = 'none';
+                }, 5000);
+            }
+
+            alertBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    </script>
+</body>
+</html>
